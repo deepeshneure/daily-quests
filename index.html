@@ -27,6 +27,11 @@ form{display:flex;gap:10px;margin-top:14px}input{flex:1;min-width:0;font:inherit
 @media(max-width:760px){body{padding:14px 12px 30px}.hero{border-radius:22px;padding:22px 60px 22px 18px;gap:17px}.lvl{width:94px;height:94px}.lvl>div{width:74px;height:74px}.lvl b{font-size:30px}.hinfo{min-width:160px}.hinfo h1{font-size:25px}.xpl{font-size:12px;margin:5px 0 12px}.stats{gap:7px}.stats div{min-width:0;flex:1;padding:8px 9px;border-radius:12px}.stats b{font-size:19px}.stats span{font-size:10px}.settings-open{right:12px;top:12px;width:40px;height:40px}.grid{grid-template-columns:1fr;gap:10px;margin-top:12px}h2{margin:18px 0 11px;font-size:17px}li{padding:11px 10px;gap:8px;border-radius:14px}.chk{width:34px;height:34px}.dy{font-size:10px}.xp{font-size:11px;padding:3px 8px}.del{font-size:18px}.week{height:140px;padding:12px}.badges{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.bd{padding:11px;min-height:72px}.bd b{font-size:13px}form{gap:8px}input{padding:11px 12px}button.add{padding:0 17px}.settings-panel{padding:16px;border-radius:20px;max-height:92vh}.settings-head h2{font-size:21px}.setting-card{padding:14px}.setting-actions{grid-template-columns:1fr}.setting-actions button{min-height:46px}}
 @media(max-width:390px){.hero{padding-right:54px}.lvl{width:78px;height:78px}.lvl>div{width:62px;height:62px}.lvl b{font-size:25px}.lvl small{font-size:9px}.hinfo h1{font-size:22px}.stats div{padding:7px 6px}.stats b{font-size:17px}.stats span{font-size:9px}.dy{display:none}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.calendar-card{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:var(--shadow)}
+.calendar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.calendar-head h2{margin:0}.month-nav{display:flex;align-items:center;gap:9px}.month-nav button{width:34px;height:34px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:19px;cursor:pointer}.month-nav strong{min-width:125px;text-align:center;font-size:14px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}.calendar-dow{text-align:center;color:var(--mute);font-size:11px;font-weight:800;padding:4px 0}.cal-day{min-height:55px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:inherit;cursor:pointer}.cal-day.empty{visibility:hidden}.cal-day .num{font-weight:750;font-size:14px}.cal-day .mark{font-size:10px;line-height:1}.cal-day.partial{background:#e8f1ff;border-color:#8bb8f0;color:#245d9b}.cal-day.perfect{background:linear-gradient(145deg,#ffe3e5,#ffc4ca);border-color:#e45b65;color:#a52232;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45)}.cal-day.today{outline:2px solid var(--acc);outline-offset:1px}.cal-day.future{opacity:.35;cursor:default}.calendar-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:13px;color:var(--mute);font-size:12px}.calendar-legend span{display:flex;align-items:center;gap:6px}.legend-dot{width:10px;height:10px;border-radius:4px;display:inline-block}.calendar-detail{margin-top:12px;padding:11px 13px;background:var(--bg);border:1px solid var(--line);border-radius:12px;color:var(--mute);font-size:13px}
+@media(max-width:760px){.calendar-card{padding:13px;margin-top:16px}.calendar-grid{gap:5px}.cal-day{min-height:46px;border-radius:9px}.calendar-head{align-items:flex-start;flex-wrap:wrap}.calendar-head h2{margin:0}.month-nav strong{min-width:112px}}
+
 </style>
 </head>
 <body>
@@ -60,6 +65,8 @@ form{display:flex;gap:10px;margin-top:14px}input{flex:1;min-width:0;font:inherit
 
     </div>
   </div>
+
+  <section class="calendar-card"><div class="calendar-head"><h2>Quest calendar</h2><div class="month-nav"><button type="button" id="calPrev" aria-label="Previous month">‹</button><strong id="calMonth"></strong><button type="button" id="calNext" aria-label="Next month">›</button></div></div><div class="calendar-grid" id="calendar"></div><div class="calendar-legend"><span><i class="legend-dot" style="background:#e45b65"></i> Perfect day</span><span><i class="legend-dot" style="background:#8bb8f0"></i> Some quests done</span><span><i class="legend-dot" style="background:var(--line)"></i> No quests done</span></div><div class="calendar-detail" id="calDetail">Select a date to see your quest progress.</div></section>
   <input type="file" id="file" accept=".json" hidden>
 </main>
 <div id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -178,6 +185,18 @@ function toggle(id){
   if(after>before){const b=document.getElementById("lvbox");b.classList.remove("pop");void b.offsetWidth;b.classList.add("pop")}
   if(msgs.length)toast(msgs.join("  ·  "));
 }
+
+let calendarMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
+function renderCalendar(){
+ const grid=document.getElementById("calendar"),label=document.getElementById("calMonth");if(!grid||!label)return;
+ const y=calendarMonth.getFullYear(),m=calendarMonth.getMonth(),first=new Date(y,m,1),daysInMonth=new Date(y,m+1,0).getDate();
+ label.textContent=calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"});grid.innerHTML="";
+ ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{const e=document.createElement("div");e.className="calendar-dow";e.textContent=d;grid.append(e)});
+ for(let i=0;i<first.getDay();i++){const e=document.createElement("div");e.className="cal-day empty";grid.append(e)}
+ const now=today();for(let day=1;day<=daysInMonth;day++){const key=dstr(new Date(y,m,day)),count=S.days[key]||0,isPerfect=Object.prototype.hasOwnProperty.call(S.bonus,key),future=key>now;const b=document.createElement("button");b.type="button";b.className="cal-day"+(isPerfect?" perfect":count>0?" partial":"")+(key===now?" today":"")+(future?" future":"");b.disabled=future;b.innerHTML='<span class="num">'+day+'</span><span class="mark">'+(isPerfect?"★":count>0?"•":"")+'</span>';b.setAttribute("aria-label",key+(isPerfect?", perfect day":count>0?", "+count+" quests completed":", no quests completed"));b.onclick=()=>{document.getElementById("calDetail").textContent=key+" — "+(isPerfect?"Perfect day! All quests completed.":count>0?count+" quest"+(count===1?"":"s")+" completed.":"No quests recorded.")};grid.append(b)}
+}
+document.getElementById("calPrev").onclick=()=>{calendarMonth.setMonth(calendarMonth.getMonth()-1);renderCalendar()};
+document.getElementById("calNext").onclick=()=>{const next=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);if(next<=new Date(new Date().getFullYear(),new Date().getMonth(),1)){calendarMonth=next;renderCalendar()}};
 function render(){
   const td=today(),l=levelOf(S.xp),lo=need(l),hi=need(l+1);
   lv.textContent=l;
@@ -188,6 +207,7 @@ function render(){
   xpl.textContent=(S.xp-lo).toLocaleString()+" / "+(hi-lo).toLocaleString()+" XP to level "+(l+1)+" ("+S.xp.toLocaleString()+" total)"}
   streak_.textContent=streak();
   today_.textContent=S.tasks.filter(x=>x.done===td).length+"/"+S.tasks.length;
+  renderCalendar();
   bonusnote.textContent=S.bonus[td]?"Perfect day +"+S.bonus[td]+" XP":"Finish all for +"+perfectBonus()+" XP";
   totalxp.textContent=S.xp.toLocaleString();
   list.innerHTML="";
