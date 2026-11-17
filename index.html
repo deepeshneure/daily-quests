@@ -119,6 +119,8 @@ li.done .t{text-decoration:none!important}
 .de-hint{margin:2px 0 10px;font-size:13px;color:var(--mute)}
 .de-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;padding:11px 13px;border-radius:15px;border:1px solid var(--line);border-left:6px solid #bfe0fb;background:var(--card);color:var(--ink);font:inherit;font-weight:700;cursor:pointer;transition:.15s}.de-row:hover{transform:translateY(-1px);border-color:var(--acc)}.de-row.on{border-left-color:var(--ok);background:linear-gradient(90deg,var(--okbg),var(--card))}
 .de-chk{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid #a9cdee;display:grid;place-items:center;font-size:14px;color:#fff}.de-row.on .de-chk{background:var(--ok);border-color:var(--ok)}
+
+.de-toggle{width:100%;margin:0;padding:2px 0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.de-toggle b{flex:1;min-width:0}.de-arrow{font-size:22px;line-height:1;color:var(--acc);transition:transform .2s}.de-toggle[aria-expanded="true"] .de-arrow{transform:rotate(180deg)}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
 </head>
@@ -288,15 +290,36 @@ function toggle(id){
   if(msgs.length)toast(msgs.join("  ·  "));
 }
 
-let selDay=null;
-// Which quests were done on a past date. Days saved before this feature are reconstructed from their counts.
-function dayMap(key){
-  if(S.hist[key])return S.hist[key];
+const dayDiff=(a,b)=>Math.round((new Date(a+"T00:00:00")-new Date(b+"T00:00:00"))/864e5);
+const addDays=(k,n)=>{const d=new Date(k+"T00:00:00");d.setDate(d.getDate()+n);return dstr(d)};
+// Days saved before history existed: rebuild them once from each quest's current chain / perfect days.
+function legacyMap(k){
   const m={};
-  if(isPerfect(key))S.tasks.forEach(t=>m[t.id]=BASE);
-  else{let c=S.days[key]||0;S.tasks.forEach(t=>{if(c>0){m[t.id]=BASE;c--}})}
+  S.tasks.forEach(t=>{if(isPerfect(k)||(t.last&&t.run&&k<=t.last&&dayDiff(t.last,k)<t.run))m[t.id]=BASE});
+  let c=(S.days[k]||0)-Object.keys(m).length;
+  S.tasks.forEach(t=>{if(c>0&&m[t.id]===undefined){m[t.id]=BASE;c--}});
   return m;
 }
+function migrateHist(){const td=today();Object.keys(S.days).forEach(k=>{if(k<td&&!S.hist[k]&&S.days[k]>0)S.hist[k]=legacyMap(k)})}
+const doneOn=(t,k)=>k===today()?t.done===today():!!(S.hist[k]&&S.hist[k][t.id]!==undefined);
+function chainBy(t,from){
+  let k=from,last=null;
+  for(let i=0;i<800;i++){if(doneOn(t,k)){last=k;break}k=addDays(k,-1)}
+  if(!last)return{last:null,run:0};
+  let run=0;k=last;while(run<800&&doneOn(t,k)){run++;k=addDays(k,-1)}
+  return{last,run};
+}
+// Every quest's "Day N" counter is recomputed from the real per-day history.
+function recomputeRuns(){
+  const td=today();
+  S.tasks.forEach(t=>{
+    const r=chainBy(t,td);t.last=r.last;t.run=r.run;
+    if(t.done===td){const u=chainBy(t,addDays(td,-1));t.undo={last:u.last,run:u.run}}
+  });
+}
+let selDay=null;
+// Which quests were done on a past date. Days saved before this feature are reconstructed from their counts.
+function dayMap(key){return S.hist[key]||legacyMap(key)}
 function toggleDay(key,id){
   const td=today();if(key>td)return;
   if(key===td){toggle(id);return}
@@ -307,26 +330,30 @@ function toggleDay(key,id){
   if(all&&!isPerfect(key)){const b=Math.round(.25*S.tasks.reduce((a,x)=>a+m[x.id],0));S.bonus[key]=b;S.xp+=b;msgs.push("Perfect day restored! +"+b+" bonus XP")}
   if(!all&&isPerfect(key)){S.xp=Math.max(0,S.xp-S.bonus[key]);delete S.bonus[key]}
   BADGES.forEach(b=>{if(!S.badges[b[0]]&&b[3]()){S.badges[b[0]]=td;msgs.push("Badge unlocked: "+b[1])}});
+  recomputeRuns();
   const after=levelOf(S.xp);if(after>before)msgs.unshift("Level up! You reached level "+after);
   save();render();if(msgs.length)toast(msgs.join("  ·  "));
 }
+let dayOpen=false;
 function renderDayEditor(){
-  const box=document.getElementById("calDetail");if(!box||!selDay)return;
-  const td=today(),isToday=selDay===td,m=isToday?null:dayMap(selDay);
+  const box=document.getElementById("calDetail");if(!box)return;
+  const td=today(),yd=addDays(td,-1),sd=selDay||yd,isToday=sd===td,m=isToday?null:dayMap(sd);
   const isDone=t=>isToday?t.done===td:m[t.id]!==undefined;
   const n=S.tasks.filter(isDone).length,perfect=S.tasks.length>0&&n===S.tasks.length;
   box.innerHTML="";
-  const h=document.createElement("div");h.className="de-head";
-  const t1=document.createElement("b");t1.textContent=new Date(selDay+"T00:00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const h=document.createElement("button");h.type="button";h.className="de-head de-toggle";h.setAttribute("aria-expanded",dayOpen);
+  const t1=document.createElement("b");t1.textContent=new Date(sd+"T00:00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"})+(sd===yd?" (yesterday)":"");
   const t2=document.createElement("span");t2.className="de-chip"+(perfect?" ok":"");t2.textContent=perfect?"★ Perfect day":n+"/"+S.tasks.length+" done";
-  h.append(t1,t2);box.append(h);
+  const ar=document.createElement("span");ar.className="de-arrow";ar.textContent="▾";
+  h.append(t1,t2,ar);h.onclick=()=>{dayOpen=!dayOpen;renderDayEditor()};box.append(h);
+  if(!dayOpen)return;
   if(!isToday){const p=document.createElement("p");p.className="de-hint";p.textContent="Forgot to tick something? Tap a quest to mark it done and save your streak.";box.append(p)}
   if(!S.tasks.length){const p=document.createElement("p");p.className="de-hint";p.textContent="No quests yet.";box.append(p)}
   S.tasks.forEach(t=>{
     const r=document.createElement("button");r.type="button";r.className="de-row"+(isDone(t)?" on":"");
     const c=document.createElement("span");c.className="de-chk";c.textContent=isDone(t)?"✓":"";
     const nm=document.createElement("span");nm.textContent=t.name;
-    r.append(c,nm);r.onclick=()=>toggleDay(selDay,t.id);box.append(r);
+    r.append(c,nm);r.onclick=()=>toggleDay(sd,t.id);box.append(r);
   });
 }
 let calendarMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
@@ -336,7 +363,7 @@ function renderCalendar(){
  label.textContent=calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"});grid.innerHTML="";
  ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{const e=document.createElement("div");e.className="calendar-dow";e.textContent=d;grid.append(e)});
  for(let i=0;i<first.getDay();i++){const e=document.createElement("div");e.className="cal-day empty";grid.append(e)}
- const now=today();for(let day=1;day<=daysInMonth;day++){const key=dstr(new Date(y,m,day)),count=S.days[key]||0,isPerfect=Object.prototype.hasOwnProperty.call(S.bonus,key),future=key>now;const b=document.createElement("button");b.type="button";b.className="cal-day"+(isPerfect?" perfect":count>0?" partial":"")+(key===now?" today":"")+(future?" future":"")+(key===selDay?" sel":"");b.disabled=future;b.innerHTML='<span class="num">'+day+'</span><span class="mark">'+(isPerfect?"★":count>0?"•":"")+'</span>';b.setAttribute("aria-label",key+(isPerfect?", perfect day":count>0?", "+count+" quests completed":", no quests completed"));b.onclick=()=>{selDay=key;renderCalendar();renderDayEditor()};grid.append(b)}
+ const now=today();for(let day=1;day<=daysInMonth;day++){const key=dstr(new Date(y,m,day)),count=S.days[key]||0,isPerfect=Object.prototype.hasOwnProperty.call(S.bonus,key),future=key>now;const b=document.createElement("button");b.type="button";b.className="cal-day"+(isPerfect?" perfect":count>0?" partial":"")+(key===now?" today":"")+(future?" future":"")+(key===selDay?" sel":"");b.disabled=future;b.innerHTML='<span class="num">'+day+'</span><span class="mark">'+(isPerfect?"★":count>0?"•":"")+'</span>';b.setAttribute("aria-label",key+(isPerfect?", perfect day":count>0?", "+count+" quests completed":", no quests completed"));b.onclick=()=>{selDay=key;dayOpen=true;renderCalendar();renderDayEditor()};grid.append(b)}
 }
 document.getElementById("calPrev").onclick=()=>{calendarMonth.setMonth(calendarMonth.getMonth()-1);renderCalendar()};
 document.getElementById("calNext").onclick=()=>{const next=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);if(next<=new Date(new Date().getFullYear(),new Date().getMonth(),1)){calendarMonth=next;renderCalendar()}};
@@ -363,6 +390,7 @@ function renderChart(){
 }
 document.querySelectorAll(".chart-tabs button").forEach(b=>b.onclick=()=>{chartDays=+b.dataset.n;document.querySelectorAll(".chart-tabs button").forEach(x=>x.classList.toggle("on",x===b));renderChart()});
 function render(){
+  migrateHist();
   const td=today(),l=levelOf(S.xp),lo=need(l),hi=need(l+1);
   lv.textContent=l;
   rank.textContent=rankOf(l);
