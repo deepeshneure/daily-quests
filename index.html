@@ -112,6 +112,13 @@ li.done .t{text-decoration:none!important}
 .notes-open{left:auto;right:18px;top:72px;width:44px;height:44px}.lvl{margin-top:0}
 @media(max-width:390px){.lvl{margin-top:0}.hero{padding-left:30px}.hero{padding-right:60px}}
 @media(prefers-color-scheme:dark){.hero{background:linear-gradient(135deg,#2c5a9e,#3a70b8)}.lvl>div{background:linear-gradient(160deg,#274f8f,#1d3f76)}}
+
+.cal-day.sel{outline:2.5px solid #3d9bf0;outline-offset:1px}
+#calDetail .de-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}#calDetail .de-head b{font-size:15px}
+.de-chip{font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);color:var(--mute)}.de-chip.ok{background:var(--okbg);color:var(--ok);border-color:var(--ok)}
+.de-hint{margin:2px 0 10px;font-size:13px;color:var(--mute)}
+.de-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;padding:11px 13px;border-radius:15px;border:1px solid var(--line);border-left:6px solid #bfe0fb;background:var(--card);color:var(--ink);font:inherit;font-weight:700;cursor:pointer;transition:.15s}.de-row:hover{transform:translateY(-1px);border-color:var(--acc)}.de-row.on{border-left-color:var(--ok);background:linear-gradient(90deg,var(--okbg),var(--card))}
+.de-chk{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid #a9cdee;display:grid;place-items:center;font-size:14px;color:#fff}.de-row.on .de-chk{background:var(--ok);border-color:var(--ok)}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
 </head>
@@ -180,7 +187,7 @@ const rankOf=l=>RANKS.filter(r=>l>=r[0]).pop()[1];
 const pad=n=>String(n).padStart(2,"0");
 const dstr=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
 const today=()=>dstr(new Date());
-const empty=()=>({tasks:[],xp:0,days:{},bonus:{},badges:{},note:"",notes:[]});
+const empty=()=>({tasks:[],xp:0,days:{},bonus:{},badges:{},note:"",notes:[],hist:{}});
 let S=empty(),fresh=true;
 try{const r=localStorage.getItem(KEY);if(r){S=Object.assign(empty(),JSON.parse(r));fresh=false}}catch(e){}
 if(!Array.isArray(S.notes))S.notes=[];
@@ -271,6 +278,7 @@ function toggle(id){
   const all=S.tasks.length>0&&S.tasks.every(x=>x.done===td);
   if(all&&!S.bonus[td]){S.bonus[td]=perfectBonus();S.xp+=S.bonus[td];msgs.push("Perfect day! +"+S.bonus[td]+" bonus XP")}
   if(!all&&S.bonus[td]){S.xp=Math.max(0,S.xp-S.bonus[td]);delete S.bonus[td]}
+  S.hist[td]=Object.fromEntries(S.tasks.filter(x=>x.done===td).map(x=>[x.id,x.paid||BASE]));
   BADGES.forEach(b=>{if(!S.badges[b[0]]&&b[3]()){S.badges[b[0]]=td;msgs.push("Badge unlocked: "+b[1])}});
   const after=levelOf(S.xp);
   if(after>before)msgs.unshift("Level up! You reached level "+after);
@@ -280,6 +288,47 @@ function toggle(id){
   if(msgs.length)toast(msgs.join("  ·  "));
 }
 
+let selDay=null;
+// Which quests were done on a past date. Days saved before this feature are reconstructed from their counts.
+function dayMap(key){
+  if(S.hist[key])return S.hist[key];
+  const m={};
+  if(isPerfect(key))S.tasks.forEach(t=>m[t.id]=BASE);
+  else{let c=S.days[key]||0;S.tasks.forEach(t=>{if(c>0){m[t.id]=BASE;c--}})}
+  return m;
+}
+function toggleDay(key,id){
+  const td=today();if(key>td)return;
+  if(key===td){toggle(id);return}
+  const m=dayMap(key),before=levelOf(S.xp),msgs=[];S.hist[key]=m;
+  if(m[id]!==undefined){S.xp=Math.max(0,S.xp-m[id]);delete m[id]}else{m[id]=BASE;S.xp+=BASE}
+  S.days[key]=Object.keys(m).length;
+  const all=S.tasks.length>0&&S.tasks.every(x=>m[x.id]!==undefined);
+  if(all&&!isPerfect(key)){const b=Math.round(.25*S.tasks.reduce((a,x)=>a+m[x.id],0));S.bonus[key]=b;S.xp+=b;msgs.push("Perfect day restored! +"+b+" bonus XP")}
+  if(!all&&isPerfect(key)){S.xp=Math.max(0,S.xp-S.bonus[key]);delete S.bonus[key]}
+  BADGES.forEach(b=>{if(!S.badges[b[0]]&&b[3]()){S.badges[b[0]]=td;msgs.push("Badge unlocked: "+b[1])}});
+  const after=levelOf(S.xp);if(after>before)msgs.unshift("Level up! You reached level "+after);
+  save();render();if(msgs.length)toast(msgs.join("  ·  "));
+}
+function renderDayEditor(){
+  const box=document.getElementById("calDetail");if(!box||!selDay)return;
+  const td=today(),isToday=selDay===td,m=isToday?null:dayMap(selDay);
+  const isDone=t=>isToday?t.done===td:m[t.id]!==undefined;
+  const n=S.tasks.filter(isDone).length,perfect=S.tasks.length>0&&n===S.tasks.length;
+  box.innerHTML="";
+  const h=document.createElement("div");h.className="de-head";
+  const t1=document.createElement("b");t1.textContent=new Date(selDay+"T00:00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const t2=document.createElement("span");t2.className="de-chip"+(perfect?" ok":"");t2.textContent=perfect?"★ Perfect day":n+"/"+S.tasks.length+" done";
+  h.append(t1,t2);box.append(h);
+  if(!isToday){const p=document.createElement("p");p.className="de-hint";p.textContent="Forgot to tick something? Tap a quest to mark it done and save your streak.";box.append(p)}
+  if(!S.tasks.length){const p=document.createElement("p");p.className="de-hint";p.textContent="No quests yet.";box.append(p)}
+  S.tasks.forEach(t=>{
+    const r=document.createElement("button");r.type="button";r.className="de-row"+(isDone(t)?" on":"");
+    const c=document.createElement("span");c.className="de-chk";c.textContent=isDone(t)?"✓":"";
+    const nm=document.createElement("span");nm.textContent=t.name;
+    r.append(c,nm);r.onclick=()=>toggleDay(selDay,t.id);box.append(r);
+  });
+}
 let calendarMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
 function renderCalendar(){
  const grid=document.getElementById("calendar"),label=document.getElementById("calMonth");if(!grid||!label)return;
@@ -287,7 +336,7 @@ function renderCalendar(){
  label.textContent=calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"});grid.innerHTML="";
  ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{const e=document.createElement("div");e.className="calendar-dow";e.textContent=d;grid.append(e)});
  for(let i=0;i<first.getDay();i++){const e=document.createElement("div");e.className="cal-day empty";grid.append(e)}
- const now=today();for(let day=1;day<=daysInMonth;day++){const key=dstr(new Date(y,m,day)),count=S.days[key]||0,isPerfect=Object.prototype.hasOwnProperty.call(S.bonus,key),future=key>now;const b=document.createElement("button");b.type="button";b.className="cal-day"+(isPerfect?" perfect":count>0?" partial":"")+(key===now?" today":"")+(future?" future":"");b.disabled=future;b.innerHTML='<span class="num">'+day+'</span><span class="mark">'+(isPerfect?"★":count>0?"•":"")+'</span>';b.setAttribute("aria-label",key+(isPerfect?", perfect day":count>0?", "+count+" quests completed":", no quests completed"));b.onclick=()=>{document.getElementById("calDetail").textContent=key+" — "+(isPerfect?"Perfect day! All quests completed.":count>0?count+" quest"+(count===1?"":"s")+" completed.":"No quests recorded.")};grid.append(b)}
+ const now=today();for(let day=1;day<=daysInMonth;day++){const key=dstr(new Date(y,m,day)),count=S.days[key]||0,isPerfect=Object.prototype.hasOwnProperty.call(S.bonus,key),future=key>now;const b=document.createElement("button");b.type="button";b.className="cal-day"+(isPerfect?" perfect":count>0?" partial":"")+(key===now?" today":"")+(future?" future":"")+(key===selDay?" sel":"");b.disabled=future;b.innerHTML='<span class="num">'+day+'</span><span class="mark">'+(isPerfect?"★":count>0?"•":"")+'</span>';b.setAttribute("aria-label",key+(isPerfect?", perfect day":count>0?", "+count+" quests completed":", no quests completed"));b.onclick=()=>{selDay=key;renderCalendar();renderDayEditor()};grid.append(b)}
 }
 document.getElementById("calPrev").onclick=()=>{calendarMonth.setMonth(calendarMonth.getMonth()-1);renderCalendar()};
 document.getElementById("calNext").onclick=()=>{const next=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);if(next<=new Date(new Date().getFullYear(),new Date().getMonth(),1)){calendarMonth=next;renderCalendar()}};
@@ -323,7 +372,7 @@ function render(){
   xpl.textContent=(S.xp-lo).toLocaleString()+" / "+(hi-lo).toLocaleString()+" XP to level "+(l+1)+" ("+S.xp.toLocaleString()+" total)"}
   streak_.textContent=streak();
   today_.textContent=S.tasks.filter(x=>x.done===td).length+"/"+S.tasks.length;
-  renderCalendar();
+  renderCalendar();renderDayEditor();
   bonusnote.textContent=S.bonus[td]?"Perfect day +"+S.bonus[td]+" XP":"Finish all for +"+perfectBonus()+" XP";
   totalxp.textContent=S.xp.toLocaleString();
   list.innerHTML="";
@@ -338,7 +387,7 @@ function render(){
     x.textContent="+"+(done?(t.paid||BASE):reward(pr));
     const dy=document.createElement("span");dy.className="dy";dy.textContent="Day "+(done?(t.run||1):pr+1);
     const d=document.createElement("button");d.className="del";d.textContent="×";d.setAttribute("aria-label","Delete "+t.name);
-    d.onclick=()=>{if(t.done===td){S.xp=Math.max(0,S.xp-(t.paid||BASE));S.days[td]=Math.max(0,(S.days[td]||0)-1)}S.tasks=S.tasks.filter(y=>y.id!==t.id);save();render()};
+    d.onclick=()=>{if(t.done===td){S.xp=Math.max(0,S.xp-(t.paid||BASE));S.days[td]=Math.max(0,(S.days[td]||0)-1)}if(S.hist[td])delete S.hist[td][t.id];S.tasks=S.tasks.filter(y=>y.id!==t.id);save();render()};
     li.append(b,s,dy,x,d);list.append(li);
   });
   renderChart();
