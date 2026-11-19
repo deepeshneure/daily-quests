@@ -1,4 +1,4 @@
-// Paste your Firebase web app config here (Firebase console > Project settings > Your apps)
+
 export const firebaseConfig = {
   apiKey: "AIzaSyBLh-ATGkOHViX_R92w1DOTBSzf3JGTOCg",
   authDomain: "daily-habit-tracker-a94d2.firebaseapp.com",
